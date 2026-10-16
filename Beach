@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Moonlit Beach — Study Screen</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #000; cursor: none;
+  }
+  canvas { display: block; position: absolute; top: 0; left: 0; }
+  #clock {
+    position: fixed; top: 6%; left: 50%; transform: translateX(-50%);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: rgba(255,235,225,0.8);
+    font-weight: 200; letter-spacing: 4px; text-align: center;
+    text-shadow: 0 0 20px rgba(255,140,90,0.25);
+    user-select: none; pointer-events: none; z-index: 10;
+  }
+  #time { font-size: 3.2rem; }
+  #date { font-size: 0.95rem; opacity: 0.6; margin-top: 4px; letter-spacing: 2px; }
+  #hint {
+    position: fixed; bottom: 3%; left: 50%; transform: translateX(-50%);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: rgba(255,255,255,0.32); font-size: 0.8rem; letter-spacing: 1px;
+    user-select: none; pointer-events: none; transition: opacity 1s; z-index: 10;
+  }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<canvas id="sea"></canvas>
+<canvas id="shore"></canvas>
+<div id="clock"><div id="time">--:--</div><div id="date">-</div></div>
+<div id="hint">press F11 for fullscreen · move mouse to fade this out</div>
+
+<script>
+const sky = document.getElementById('sky').getContext('2d');
+const sea = document.getElementById('sea').getContext('2d');
+const shore = document.getElementById('shore').getContext('2d');
+const canvases = [sky.canvas, sea.canvas, shore.canvas];
+let W, H, horizon;
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvases.forEach(c => { c.width = W; c.height = H; });
+  horizon = H * 0.58;
+  buildStars();
+  buildGrass();
+  buildPalms();
+  moon.x = W * 0.74; moon.y = H * 0.22; moon.r = Math.min(W, H) * 0.085;
+}
+window.addEventListener('resize', resize);
+
+let t = 0;
+
+// ---------- Stars (only above horizon) ----------
+let stars = [];
+function buildStars() {
+  stars = [];
+  const count = 90;
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * horizon * 0.9,
+      r: Math.random() * 1.1 + 0.3,
+      baseAlpha: Math.random() * 0.5 + 0.3,
+      speed: Math.random() * 0.02 + 0.006,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+// ---------- Moon (large, warm red) ----------
+const moon = { x: 0, y: 0, r: 80, hue: 8 };
+let moonTexture = null;
+let moonTextureBuiltForR = 0;
+function buildMoonTexture() {
+  const size = Math.round(moon.r * 2.6);
+  const off = document.createElement('canvas');
+  off.width = size; off.height = size;
+  const mctx = off.getContext('2d');
+  const cx = size/2, cy = size/2, r = moon.r;
+
+  const base = mctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.1, cx, cy, r);
+  base.addColorStop(0,    `hsl(${moon.hue+18}, 75%, 62%)`);
+  base.addColorStop(0.55, `hsl(${moon.hue+6}, 78%, 46%)`);
+  base.addColorStop(1,    `hsl(${moon.hue-4}, 75%, 30%)`);
+  mctx.fillStyle = base;
+  mctx.beginPath(); mctx.arc(cx, cy, r, 0, Math.PI*2); mctx.fill();
+
+  // soft mare-like shading patches (large, faint, irregular — not dot-like)
+  mctx.save();
+  mctx.beginPath(); mctx.arc(cx, cy, r, 0, Math.PI*2); mctx.clip();
+  const patches = 6;
+  for (let i = 0; i < patches; i++) {
+    const a = (i / patches) * Math.PI * 2 + 0.4;
+    const d = r * (0.15 + (i % 3) * 0.18);
+    const cxp = cx + Math.cos(a) * d;
+    const cyp = cy + Math.sin(a) * d;
+    const pr = r * (0.22 + (i % 2) * 0.12);
+    const pg = mctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, pr);
+    pg.addColorStop(0, `hsla(${moon.hue}, 45%, 28%, 0.28)`);
+    pg.addColorStop(1, `hsla(${moon.hue}, 45%, 28%, 0)`);
+    mctx.fillStyle = pg;
+    mctx.beginPath(); mctx.arc(cxp, cyp, pr, 0, Math.PI*2); mctx.fill();
+  }
+  mctx.restore();
+  moonTexture = off;
+  moonTextureBuiltForR = moon.r;
+}
+function drawMoon(ctx) {
+  if (!moonTexture || moonTextureBuiltForR !== moon.r) buildMoonTexture();
+  const glow = ctx.createRadialGradient(moon.x, moon.y, moon.r*0.8, moon.x, moon.y, moon.r*3.4);
+  glow.addColorStop(0, `hsla(${moon.hue}, 85%, 55%, 0.35)`);
+  glow.addColorStop(1, `hsla(${moon.hue}, 85%, 45%, 0)`);
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(moon.x, moon.y, moon.r*3.4, 0, Math.PI*2); ctx.fill();
+
+  const size = moonTexture.width;
+  ctx.drawImage(moonTexture, moon.x - size/2, moon.y - size/2, size, size);
+}
+
+// ---------- Drifting clouds ----------
+const clouds = [
+  { x: 0.1, y: 0.15, w: 0.28, speed: 0.0025, alpha: 0.10 },
+  { x: 0.5, y: 0.10, w: 0.35, speed: 0.0016, alpha: 0.07 },
+  { x: 0.65, y: 0.24, w: 0.22, speed: 0.0032, alpha: 0.14 }
+];
+function drawClouds(ctx) {
+  clouds.forEach(c => {
+    const cx = ((c.x + t*c.speed*0.001) % 1.3 - 0.15) * W;
+    const cy = c.y * H;
+    const w = c.w * W;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, w*0.5);
+    g.addColorStop(0, `rgba(230,220,225,${c.alpha})`);
+    g.addColorStop(1, 'rgba(230,220,225,0)');
+    ctx.fillStyle = g;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, 0.35);
+    ctx.beginPath(); ctx.arc(0, 0, w*0.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ---------- Ocean: layered swells + moon reflection ----------
+function drawOceanBase() {
+  sea.clearRect(0, 0, W, H);
+  const g = sea.createLinearGradient(0, horizon, 0, H);
+  g.addColorStop(0, '#182f45');
+  g.addColorStop(0.4, '#0f2033');
+  g.addColorStop(1, '#050a12');
+  sea.fillStyle = g;
+  sea.fillRect(0, horizon, W, H - horizon);
+}
+
+function drawSwellLines() {
+  const rows = 14;
+  for (let i = 0; i < rows; i++) {
+    const frac = i / rows;
+    const y = horizon + Math.pow(frac, 1.6) * (H - horizon);
+    const amp = 1.5 + frac * 3.5;
+    const freq = 0.02 - frac * 0.008;
+    const speed = 0.02 + frac * 0.02;
+    sea.beginPath();
+    for (let x = 0; x <= W; x += 8) {
+      const yy = y + Math.sin(x*freq + t*speed + i) * amp;
+      if (x === 0) sea.moveTo(x, yy); else sea.lineTo(x, yy);
+    }
+    sea.strokeStyle = `rgba(180,200,220,${0.05 + frac*0.05})`;
+    sea.lineWidth = 1;
+    sea.stroke();
+  }
+}
+
+function drawMoonReflection() {
+  const rx = moon.x;
+  const topY = horizon;
+  const segs = 26;
+  for (let i = 0; i < segs; i++) {
+    const frac = i / segs;
+    const y = topY + frac * (H - topY);
+    const widthAtY = 6 + frac * moon.r * 0.9;
+    const wobble = Math.sin(t*0.05 + i*1.3) * widthAtY * 0.35;
+    const flicker = 0.5 + Math.sin(t*0.15 + i*2.1) * 0.5;
+    const alpha = (1 - frac) * 0.35 * (0.4 + flicker*0.6);
+    sea.fillStyle = `hsla(${moon.hue}, 85%, 62%, ${Math.max(0,alpha)})`;
+    sea.fillRect(rx - widthAtY/2 + wobble, y, widthAtY, (H - topY)/segs + 1);
+  }
+}
+
+// ---------- Shore: foam line that washes in and out + wet sand + grass ----------
+let grass = [];
+function buildGrass() {
+  grass = [];
+  const tufts = 10;
+  for (let i = 0; i < tufts; i++) {
+    grass.push({
+      x: Math.random() * W * 0.22 + (Math.random()<0.5 ? 0 : W*0.78),
+      h: 24 + Math.random()*30,
+      sway: Math.random()*Math.PI*2,
+      speed: 0.02 + Math.random()*0.015,
+      blades: 3 + Math.floor(Math.random()*3)
+    });
+  }
+}
+
+// ---------- Tall coconut palm trees, silhouetted, swaying in the wind ----------
+let palms = [];
+function buildPalms() {
+  palms = [
+    { x: W * 0.07, baseY: H * 1.01, height: H * 0.96, baseW: 26, lean: -0.16, sway: 0,   speed: 0.016, fronds: 9 },
+    { x: W * 0.95, baseY: H * 1.02, height: H * 0.88, baseW: 22, lean: 0.20,  sway: 2.4, speed: 0.014, fronds: 8 }
+  ];
+}
+
+// draws a single tapered, drooping frond as a filled silhouette shape
+function drawFrond(ctx, topX, topY, angle, len, baseW, droopDir) {
+  const midX = topX + Math.cos(angle) * len * 0.5;
+  const midY = topY + Math.sin(angle) * len * 0.5 - len * 0.16; // rachis rises first
+  const endX = topX + Math.cos(angle + droopDir * 0.4) * len;
+  const endY = topY + Math.sin(angle + droopDir * 0.4) * len + len * 0.30; // then droops down
+
+  const N = 16;
+  const center = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const x = (1-u)*(1-u)*topX + 2*(1-u)*u*midX + u*u*endX;
+    const y = (1-u)*(1-u)*topY + 2*(1-u)*u*midY + u*u*endY;
+    center.push({ x, y, u });
+  }
+
+  const left = [], right = [];
+  for (let i = 0; i < center.length; i++) {
+    const p = center[i];
+    const w = baseW * (1 - p.u) * (1 - p.u * 0.5); // tapers to a point at the tip
+    const next = center[Math.min(i+1, center.length-1)];
+    const dx = next.x - p.x, dy = next.y - p.y;
+    const dl = Math.hypot(dx, dy) || 1;
+    const nx = -dy/dl, ny = dx/dl;
+    left.push({ x: p.x + nx*w/2, y: p.y + ny*w/2 });
+    right.push({ x: p.x - nx*w/2, y: p.y - ny*w/2 });
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+  left.forEach(p => ctx.lineTo(p.x, p.y));
+  for (let i = right.length-1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(6,5,4,0.9)';
+  ctx.fill();
+}
+
+function drawPalm(ctx, p) {
+  const windBend = Math.sin(t*p.speed + p.sway) * 0.10 + Math.sin(t*0.045 + p.sway)*0.025;
+  const topX = p.x + Math.sin(p.lean + windBend) * p.height * 0.5;
+  const topY = p.baseY - p.height;
+  const midX = p.x + Math.sin(p.lean + windBend*0.6) * p.height * 0.2;
+  const midY = p.baseY - p.height * 0.55;
+
+  // trunk: thick tapered base rising to a slender, gently curved top
+  ctx.beginPath();
+  ctx.moveTo(p.x - p.baseW/2, p.baseY);
+  ctx.quadraticCurveTo(midX - p.baseW*0.22, midY, topX - p.baseW*0.10, topY);
+  ctx.lineTo(topX + p.baseW*0.10, topY);
+  ctx.quadraticCurveTo(midX + p.baseW*0.22, midY, p.x + p.baseW/2, p.baseY);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(7,6,5,0.9)';
+  ctx.fill();
+
+  // faint trunk rings for texture
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 10; i++) {
+    const u = i/10;
+    const rx = p.x + (topX-p.x)*u;
+    const ry = p.baseY + (topY-p.baseY)*u;
+    const rw = p.baseW * (1-u*0.8) * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(rx-rw, ry); ctx.lineTo(rx+rw, ry);
+    ctx.stroke();
+  }
+
+  // crown of long drooping fronds around the top
+  for (let i = 0; i < p.fronds; i++) {
+    const baseAngle = (i / p.fronds) * Math.PI * 2 - Math.PI/2;
+    const droopDir = (i % 2 === 0) ? 1 : -1;
+    const lenJitter = 0.85 + (i % 3) * 0.1;
+    const len = p.height * 0.4 * lenJitter;
+    const sway = windBend * (1 + (i % 2) * 0.5);
+    drawFrond(ctx, topX, topY, baseAngle + sway, len, p.baseW*0.55, droopDir);
+  }
+}
+
+function drawPalms(ctx) {
+  palms.forEach(p => drawPalm(ctx, p));
+}
+
+function drawShore() {
+  shore.clearRect(0, 0, W, H);
+
+  // sand base
+  const sandTop = H - H*0.14;
+  const sandGrad = shore.createLinearGradient(0, sandTop, 0, H);
+  sandGrad.addColorStop(0, '#2a2018');
+  sandGrad.addColorStop(1, '#120d09');
+  shore.fillStyle = sandGrad;
+  shore.fillRect(0, sandTop, W, H - sandTop);
+
+  // wave wash: tide moves in and out slowly
+  const tideCycle = (Math.sin(t*0.012) + 1) / 2; // 0..1 slow back-and-forth
+  const waveReach = sandTop - 4 - tideCycle * H*0.085;
+
+  // receding foam trail
+  shore.save();
+  shore.beginPath();
+  shore.moveTo(0, sandTop);
+  for (let x = 0; x <= W; x += 10) {
+    const edge = waveReach + Math.sin(x*0.02 + t*0.04) * 6;
+    shore.lineTo(x, edge);
+  }
+  shore.lineTo(W, sandTop);
+  shore.closePath();
+  const wetGrad = shore.createLinearGradient(0, waveReach, 0, sandTop);
+  wetGrad.addColorStop(0, 'rgba(90,120,150,0.35)');
+  wetGrad.addColorStop(1, 'rgba(40,45,45,0.05)');
+  shore.fillStyle = wetGrad;
+  shore.fill();
+  shore.restore();
+
+  // foam line itself
+  shore.beginPath();
+  for (let x = 0; x <= W; x += 10) {
+    const edge = waveReach + Math.sin(x*0.02 + t*0.04) * 6;
+    if (x === 0) shore.moveTo(x, edge); else shore.lineTo(x, edge);
+  }
+  shore.strokeStyle = `rgba(255,255,255,${0.35 + tideCycle*0.15})`;
+  shore.lineWidth = 2.2;
+  shore.stroke();
+
+  // reflected moon glint on wet sand
+  const gx = moon.x;
+  const gg = shore.createRadialGradient(gx, waveReach - 4, 0, gx, waveReach - 4, W*0.12);
+  gg.addColorStop(0, `hsla(${moon.hue}, 80%, 60%, 0.18)`);
+  gg.addColorStop(1, `hsla(${moon.hue}, 80%, 60%, 0)`);
+  shore.fillStyle = gg;
+  shore.beginPath(); shore.ellipse(gx, waveReach - 2, W*0.12, 10, 0, 0, Math.PI*2); shore.fill();
+
+  // wind-swayed grass tufts, silhouetted, at screen edges
+  grass.forEach(g => {
+    const windPhase = t*g.speed + g.sway;
+    for (let b = 0; b < g.blades; b++) {
+      const bx = g.x + (b - g.blades/2) * 4;
+      const bh = g.h * (0.8 + Math.random()*0.001 + b*0.03);
+      const bend = Math.sin(windPhase + b*0.6) * 14 + Math.sin(t*0.05)*4;
+      shore.beginPath();
+      shore.moveTo(bx, H);
+      shore.quadraticCurveTo(bx + bend*0.5, H - bh*0.6, bx + bend, H - bh);
+      shore.strokeStyle = 'rgba(10,8,6,0.75)';
+      shore.lineWidth = 2;
+      shore.stroke();
+    }
+  });
+
+  drawPalms(shore);
+}
+
+function frame() {
+  t += 1;
+
+  // sky
+  sky.clearRect(0,0,W,H);
+  const skyGrad = sky.createLinearGradient(0, 0, 0, horizon);
+  skyGrad.addColorStop(0,   '#0a0c1c');
+  skyGrad.addColorStop(0.55,'#241428');
+  skyGrad.addColorStop(0.85,'#4a2230');
+  skyGrad.addColorStop(1,   '#6e2f2a');
+  sky.fillStyle = skyGrad;
+  sky.fillRect(0, 0, W, horizon);
+
+  stars.forEach(s => {
+    const a = Math.max(0, s.baseAlpha + Math.sin(t*s.speed + s.phase)*0.3);
+    sky.beginPath();
+    sky.fillStyle = `rgba(255,255,255,${a})`;
+    sky.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    sky.fill();
+  });
+
+  drawClouds(sky);
+  drawMoon(sky);
+
+  // sea
+  drawOceanBase();
+  drawSwellLines();
+  drawMoonReflection();
+
+  // shore
+  drawShore();
+
+  requestAnimationFrame(frame);
+}
+resize();
+frame();
+
+// ---------- Clock ----------
+function updateClock() {
+  const now = new Date();
+  document.getElementById('time').textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  document.getElementById('date').textContent = now.toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
+}
+updateClock();
+setInterval(updateClock, 10000);
+
+// ---------- Fade UI ----------
+let hideTimer;
+const hint = document.getElementById('hint');
+function showUI() {
+  hint.style.opacity = 1;
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => { hint.style.opacity = 0; }, 3000);
+}
+window.addEventListener('mousemove', showUI);
+showUI();
+</script>
+</body>
+</html>
